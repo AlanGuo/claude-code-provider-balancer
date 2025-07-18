@@ -108,7 +108,7 @@ class Settings(BaseSettings):
     log_color: bool = True
     providers_config_path: str = "providers.yaml"
     referrer_url: str = "http://localhost:8082/claude_proxy"
-    reload: bool = True
+    reload: bool = False
 
     # These will be loaded from provider config
     host: str = "127.0.0.1"

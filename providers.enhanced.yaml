@@ -1,0 +1,293 @@
+# Enhanced Claude Code Provider Balancer Configuration
+# 支持智能路由和session-based providers的增强配置
+
+providers:
+  # Token-based providers (传统按token计费)
+  - name: "GAC"
+    type: "anthropic"
+    billing_model: "token_based"  # 可选，会自动推断
+    base_url: "https://gaccode.com/claudecode"
+    auth_type: "api_key"
+    auth_value: "sk-ant-oat01-620f0528aebc525f64ee11c9eb019abbf1f8d49be5bdf675e5e006263e219416"
+    enabled: true
+
+  - name: "Claude Official"
+    type: "anthropic"
+    billing_model: "token_based"
+    base_url: "https://api.anthropic.com"
+    auth_type: "auth_token"
+    auth_value: "passthrough"  # 透传用户的认证
+    proxy: "http://127.0.0.1:10808"
+    enabled: true
+
+  - name: "YourAPI"
+    type: "anthropic"
+    billing_model: "token_based"
+    base_url: "https://yourapi.cn"
+    auth_type: "auth_token"
+    auth_value: "sk-Tu98AwG21ZNYDWW5yT4OW5WlsTz1jZ7XcHH1tqxuTvTAnejF"
+    enabled: true
+
+  - name: "OpenRouter"
+    type: "openai"
+    billing_model: "token_based"
+    base_url: "https://openrouter.ai/api/v1"
+    auth_type: "api_key"
+    auth_value: "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"
+    enabled: true
+
+  # Session-based providers (按session计费)
+  - name: "zed_provider"
+    type: "zed"
+    billing_model: "session_based"  # 可选，会自动推断
+    base_url: "https://zed-api.example.com"
+    auth_type: "api_key"
+    auth_value: "your-zed-api-key"
+    enabled: false  # 暂时禁用，等待实际的zed provider
+    session_config:
+      max_context_tokens: 120000
+      max_tool_calls_per_session: 25
+      session_ttl: 3600  # 1小时
+      default_mode: "normal"
+      auto_rotate_threshold: 0.8  # 80%阈值轮转
+      modes:
+        normal:
+          cost_per_prompt: 0.04
+          max_tool_calls: 25
+          description: "标准模式，25次工具调用限制"
+        burn:
+          cost_per_request: 0.05
+          max_tool_calls: -1  # unlimited
+          description: "燃烧模式，无限工具调用"
+
+  # 未来可能的其他session-based providers
+  # - name: "claude_workbench"
+  #   type: "claude_workbench"
+  #   billing_model: "session_based"
+  #   base_url: "https://workbench.anthropic.com/api"
+  #   auth_type: "api_key"
+  #   auth_value: "your-workbench-key"
+  #   enabled: false
+
+# 智能路由配置
+routing:
+  # 启用智能路由
+  enabled: true
+  
+  # 强制规则配置
+  force_session_based:
+    - tool_count_gte: 3        # 工具数量 >= 3
+    - text_length_gte: 2000    # 文本长度 >= 2000字符
+    - has_multiple_files: true # 包含多个文件路径
+  
+  force_token_based:
+    - tool_count: 0            # 无工具调用
+      text_length_lte: 200     # 且文本长度 <= 200字符
+      simple_question: true    # 且是简单问答
+
+  # Session-based优势关键词 (关键词: 权重)
+  session_keywords:
+    # 高权重关键词 (2分)
+    "搜索": 2
+    "分析": 2
+    "调试": 2
+    "扫描": 2
+    "遍历": 2
+    "检查": 2
+    
+    # 中权重关键词 (1分)
+    "项目": 1
+    "步骤": 1
+    "继续": 1
+    "接着": 1
+    "优化": 1
+    "重构": 1
+    "流程": 1
+    "计划": 1
+    "实现": 1
+    "构建": 1
+    "修复": 1
+
+  # Token-based优势关键词 (关键词: 权重)
+  token_keywords:
+    # 高权重关键词 (2分)
+    "什么是": 2
+    "如何": 2
+    "解释": 2
+    "为什么": 2
+    "是否": 2
+    "能否": 2
+    
+    # 中权重关键词 (1分)
+    "写一个": 1
+    "创建一个": 1
+    "生成一个": 1
+    "定义": 1
+    "介绍": 1
+    "说明": 1
+
+  # 默认策略
+  default_with_tools: "session_based"     # 有工具时优先session
+  default_without_tools: "token_based"    # 无工具时优先token
+
+# 模型路由配置 (支持计费模式优先级)
+model_routes:
+  # Claude 3.5 Sonnet 路由
+  "*sonnet*":
+    # Session-based providers (优先，适合复杂任务)
+    - provider: "zed_provider"
+      model: "claude-sonnet-4"
+      priority: 1
+      billing_model: "session_based"
+      session_mode: "auto"  # auto | normal | burn
+    
+    # Token-based providers (fallback，适合简单任务)
+    - provider: "GAC"
+      model: "passthrough"
+      priority: 2
+      billing_model: "token_based"
+    - provider: "Claude Official"
+      model: "passthrough"
+      priority: 3
+      billing_model: "token_based"
+    - provider: "YourAPI"
+      model: "passthrough"
+      priority: 4
+      billing_model: "token_based"
+    - provider: "OpenRouter"
+      model: "google/gemini-2.5-pro"  # 替代模型
+      priority: 5
+      billing_model: "token_based"
+
+  # Claude Opus 路由
+  "*opus*":
+    - provider: "GAC"
+      model: "passthrough"
+      priority: 1
+      billing_model: "token_based"
+    - provider: "Claude Official"
+      model: "passthrough"
+      priority: 2
+      billing_model: "token_based"
+    - provider: "YourAPI"
+      model: "passthrough"
+      priority: 3
+      billing_model: "token_based"
+    - provider: "zed_provider"
+      model: "claude-opus-4"
+      priority: 4
+      billing_model: "session_based"
+      session_mode: "normal"
+
+  # Claude Haiku 路由 (轻量任务，优先token-based)
+  "*haiku*":
+    - provider: "GAC"
+      model: "passthrough"
+      priority: 1
+      billing_model: "token_based"
+    - provider: "YourAPI"
+      model: "passthrough"
+      priority: 2
+      billing_model: "token_based"
+    - provider: "Claude Official"
+      model: "passthrough"
+      priority: 3
+      billing_model: "token_based"
+    - provider: "OpenRouter"
+      model: "anthropic/claude-3.5-haiku"
+      priority: 4
+      billing_model: "token_based"
+
+# 全局设置
+settings:
+  reload: false  # 是否启用配置热重载
+  # 模型选择策略
+  selection_strategy: "priority"  # priority | round_robin | random
+
+  # 故障处理
+  failure_cooldown: 180          # 故障provider冷却时间（秒）
+  request_timeout: 120           # 请求超时时间（秒）
+  streaming_timeout: 120         # 流式响应超时时间（秒）
+  streaming_activity_timeout: 60 # 流式响应活动超时时间（秒）
+
+  # 智能恢复设置
+  idle_recovery_interval: 300    # 空闲恢复间隔（秒）
+
+  # 错误处理策略 - 只有这些错误才会failover
+  failover_error_types:
+    # 网络和超时错误
+    - "connection_error"
+    - "timeout_error"
+    - "read_timeout"
+    - "connect_timeout"
+    - "pool_timeout"
+    - "ssl_error"
+    
+    # 服务器临时错误
+    - "internal_server_error"
+    - "bad_gateway"
+    - "service_unavailable"
+    - "gateway_timeout"
+    - "too_many_requests"
+    - "rate_limit_exceeded"
+    - "server_overloaded"
+    - "overloaded_error"
+    - "temporary_unavailable"
+    
+    # Session-based特定错误
+    - "session_expired"
+    - "thread_expired"
+    - "context_overflow"
+    - "tool_calls_limit_exceeded"
+    
+    # Provider特定错误
+    - "没有可用token"
+    - "无可用模型"
+
+  # HTTP状态码failover映射
+  failover_http_codes:
+    - 402  # Payment Required
+    - 404  # Not Found
+    - 408  # Request Timeout
+    - 429  # Too Many Requests
+    - 500  # Internal Server Error
+    - 502  # Bad Gateway
+    - 503  # Service Unavailable
+    - 504  # Gateway Timeout
+    - 520  # Unknown Error (Cloudflare)
+    - 521  # Web Server Is Down
+    - 522  # Connection Timed Out
+    - 523  # Origin Is Unreachable
+    - 524  # A Timeout Occurred
+
+  # 日志设置
+  log_level: "INFO"
+  log_color: true
+  log_file_path: "logs/logs.jsonl"
+
+  # 服务器配置
+  host: "127.0.0.1"
+  port: 8080
+
+  # 应用信息
+  app_name: "Claude Code Provider Balancer Enhanced"
+  app_version: "0.6.0"
+
+  # 请求去重设置
+  deduplication:
+    enabled: true
+    include_max_tokens_in_signature: false
+
+  # 监控和统计
+  monitoring:
+    enabled: true
+    route_decision_logging: true    # 记录路由决策
+    cost_tracking: true             # 成本跟踪
+    performance_metrics: true       # 性能指标
+    session_analytics: true         # Session分析
+    
+  # 实验性功能
+  experimental:
+    adaptive_routing: false         # 自适应路由学习
+    cost_optimization: true         # 成本优化
+    quality_feedback: false         # 质量反馈学习
