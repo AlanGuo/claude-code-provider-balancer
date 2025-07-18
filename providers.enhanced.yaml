@@ -8,7 +8,7 @@ providers:
     billing_model: "token_based"  # 可选，会自动推断
     base_url: "https://gaccode.com/claudecode"
     auth_type: "api_key"
-    auth_value: "sk-ant-oat01-620f0528aebc525f64ee11c9eb019abbf1f8d49be5bdf675e5e006263e219416"
+    auth_value: "..."  # 替换为实际的API密钥
     enabled: true
 
   - name: "Claude Official"
@@ -25,7 +25,7 @@ providers:
     billing_model: "token_based"
     base_url: "https://yourapi.cn"
     auth_type: "auth_token"
-    auth_value: "sk-Tu98AwG21ZNYDWW5yT4OW5WlsTz1jZ7XcHH1tqxuTvTAnejF"
+    auth_value: "..." # 替换为实际的API密钥
     enabled: true
 
   - name: "OpenRouter"
@@ -33,7 +33,7 @@ providers:
     billing_model: "token_based"
     base_url: "https://openrouter.ai/api/v1"
     auth_type: "api_key"
-    auth_value: "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"
+    auth_value: "..." # 替换为实际的API密钥
     enabled: true
 
   # Session-based providers (按session计费)
