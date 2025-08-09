@@ -196,6 +196,8 @@ class ProviderAuth:
     
     def _print_oauth_authorization_instructions(self, auth_url: str, http_status_code: int):
         """打印OAuth授权指令"""
+        # Note: auth_url parameter kept for interface compatibility but not used
+        # as we now direct users to the local URL generator
         print("\n" + "="*80)
         if http_status_code == 403:
             print("🔒 FORBIDDEN ACCESS - OAUTH AUTHENTICATION REQUIRED")
@@ -206,7 +208,7 @@ class ProviderAuth:
         print("To continue using Claude Code Provider Balancer, you need to:")
         print()
         print("1. 🌐 Open this URL in your browser:")
-        print(f"   {auth_url}")
+        print("   http://localhost:9090/oauth/generate-url")
         print()
         print("2. 🔑 Sign in with your Claude Code account")
         print()
