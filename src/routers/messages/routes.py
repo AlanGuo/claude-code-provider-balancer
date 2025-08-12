@@ -687,7 +687,6 @@ def create_messages_router(provider_manager: ProviderManager, settings: Any) -> 
         # Create clean request body without balancer-specific fields for provider requests
         clean_request_body = {k: v for k, v in parsed_body.items() if k not in ['provider']}
         original_headers = dict(request.headers)
-        
         return RequestContext(
             request_id=request_id,
             request=request,
@@ -869,11 +868,7 @@ def create_messages_router(provider_manager: ProviderManager, settings: Any) -> 
                     # Special handling for 401 Unauthorized and 403 Forbidden with Claude Code Official
                     if http_status_code in [401, 403] and current_provider.name == "Claude Code Official":
                         # Handle OAuth authorization required
-                        login_url = provider_manager.handle_oauth_authorization_required(current_provider, http_status_code)
-                        if login_url:
-                            # For OAuth authorization flow, don't failover and return the auth error directly
-                            # The user needs to complete the OAuth flow
-                            return await message_handler.log_and_return_error_response(request, e, request_id, http_status_code, context.signature)
+                        provider_manager.handle_oauth_authorization_required(current_provider, http_status_code)
                     
                     # Use provider_manager to determine error handling strategy
                     error_reason, should_record_error, can_failover = provider_manager.get_error_handling_decision(

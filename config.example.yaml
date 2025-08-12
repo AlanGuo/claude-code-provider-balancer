@@ -12,7 +12,7 @@ providers:
     type: "anthropic"
     base_url: "https://api.anthropic.com"
     auth_type: "auth_token"
-    auth_value: "passthrough"
+    auth_value: "oauth"  # 使用OAuth token认证，从keyring获取
     proxy: "http://127.0.0.1:10808"
     enabled: false
 

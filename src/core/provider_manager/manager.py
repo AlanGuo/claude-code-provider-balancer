@@ -487,8 +487,8 @@ class ProviderManager:
     def reload_config(self):
         """Reload configuration from file"""
         self.load_config()
-    
-    def handle_oauth_authorization_required(self, provider: Provider, http_status_code: int = 401) -> str:
+
+    def handle_oauth_authorization_required(self, provider: Provider, http_status_code: int = 401):
         """Handle 401/403 authorization required error for OAuth providers"""
         return self.provider_auth.handle_oauth_authorization_required(provider, http_status_code)
     

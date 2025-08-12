@@ -8,13 +8,12 @@
 from typing import Dict, Optional, Protocol
 from enum import Enum
 
-from utils import debug, LogRecord, LogEvent
+from utils import debug, LogRecord, LogEvent, mask_sensitive_data
 
 
 class AuthType(str, Enum):
     API_KEY = "api_key"
     AUTH_TOKEN = "auth_token"
-    OAUTH = "oauth"
 
 
 class ProviderType(str, Enum):
@@ -47,6 +46,17 @@ class ProviderAuth:
             message=f"Provider {provider.name}: auth_type={provider.auth_type}, auth_value=[REDACTED]"
         ))
         
+        # 打印原始请求头（在现有debug之后）
+        if original_headers:
+            debug(LogRecord(
+                event=LogEvent.ORIGINAL_REQUEST_HEADERS_RECEIVED.value,
+                message=f"Original headers for provider {provider.name}",
+                data={
+                    "original_headers": mask_sensitive_data({k: v for k, v in original_headers.items()}),
+                    "provider": provider.name
+                }
+            ))
+        
         # 复制原始请求头（排除需要替换的认证头、host头和content-length头）
         if original_headers:
             headers.update(self._filter_original_headers(original_headers))
@@ -54,10 +64,18 @@ class ProviderAuth:
         # 根据认证模式设置认证头部
         if provider.auth_value == "passthrough":
             self._handle_passthrough_auth(headers, provider, original_headers)
-        elif provider.auth_type == AuthType.OAUTH:
-            self._handle_oauth_auth(headers, provider)
         else:
             self._handle_standard_auth(headers, provider)
+        
+        # 在return之前添加最终请求头打印
+        debug(LogRecord(
+            event=LogEvent.FINAL_PROVIDER_HEADERS.value,
+            message=f"Final headers for provider {provider.name}",
+            data={
+                "final_headers": mask_sensitive_data({k: v for k, v in headers.items()}),
+                "provider": provider.name
+            }
+        ))
         
         return headers
     
@@ -89,40 +107,77 @@ class ProviderAuth:
         if provider.type == ProviderType.ANTHROPIC:
             headers["anthropic-version"] = "2023-06-01"
     
-    def _handle_oauth_auth(self, headers: Dict[str, str], provider: ProviderProtocol):
-        """处理OAuth认证模式"""
-        # 获取OAuth manager
-        oauth_manager = self._get_oauth_manager()
-        
-        if not oauth_manager:
-            # OAuth manager未初始化，触发OAuth授权流程
-            self._trigger_oauth_authorization(provider)
-        
-        access_token = oauth_manager.get_current_token()
-        if not access_token:
-            # 触发OAuth授权流程
-            self._trigger_oauth_authorization(provider)
-        
-        # 使用OAuth token作为Bearer token
-        headers["Authorization"] = f"Bearer {access_token}"
-        
-        # 为Anthropic类型的provider添加版本头
-        if provider.type == ProviderType.ANTHROPIC:
-            headers["anthropic-version"] = "2023-06-01"
     
     def _handle_standard_auth(self, headers: Dict[str, str], provider: ProviderProtocol):
         """处理标准认证模式（API Key、Auth Token）"""
+        # 获取实际的认证值
+        auth_value = self._get_auth_value(provider)
+        
         if provider.auth_type == AuthType.API_KEY:
             if provider.type == ProviderType.ANTHROPIC:
-                headers["x-api-key"] = provider.auth_value
+                headers["x-api-key"] = auth_value
                 headers["anthropic-version"] = "2023-06-01"
             else:  # OpenAI compatible
-                headers["Authorization"] = f"Bearer {provider.auth_value}"
+                headers["Authorization"] = f"Bearer {auth_value}"
         elif provider.auth_type == AuthType.AUTH_TOKEN:
             # 对于使用auth_token的服务商
-            headers["Authorization"] = f"Bearer {provider.auth_value}"
+            headers["Authorization"] = f"Bearer {auth_value}"
             if provider.type == ProviderType.ANTHROPIC:
                 headers["anthropic-version"] = "2023-06-01"
+                
+                # 对于Claude Code Official，需要特殊处理头部以确保OAuth兼容性
+                if provider.name == "Claude Code Official" and provider.auth_value == "oauth":
+                    self._apply_claude_official_headers_fix(headers)
+    
+    def _apply_claude_official_headers_fix(self, headers: Dict[str, str]):
+        """为Claude Code Official应用头部修正，确保OAuth兼容性"""
+        # 确保有oauth-2025-04-20 beta标识，这是成功认证的关键
+        anthropic_beta = headers.get("anthropic-beta", "")
+        
+        # 添加oauth-2025-04-20如果没有的话
+        if "oauth-2025-04-20" not in anthropic_beta:
+            if anthropic_beta:
+                # 如果已有其他beta标识，添加到前面
+                headers["anthropic-beta"] = f"oauth-2025-04-20,{anthropic_beta}"
+            else:
+                # 如果没有beta标识，只添加OAuth相关的
+                headers["anthropic-beta"] = "oauth-2025-04-20"
+
+        debug(LogRecord(
+            event=LogEvent.CLAUDE_OFFICIAL_HEADERS_APPLIED.value,
+            message=f"Applied Claude Official OAuth headers fix",
+            data={"anthropic_beta": headers.get("anthropic-beta")}
+        ))
+    
+    def _get_auth_value(self, provider: ProviderProtocol) -> str:
+        """获取实际的认证值，如果是OAuth则从keyring获取"""
+        if provider.auth_value == "oauth":
+            # 从OAuth manager获取token
+            oauth_manager = self._get_oauth_manager()
+            
+            debug(LogRecord(
+                event=LogEvent.OAUTH_MANAGER_CHECK.value, 
+                message=f"OAuth manager obtained for {provider.name}: {oauth_manager is not None}"
+            ))
+            
+            if not oauth_manager:
+                # OAuth manager未初始化，触发OAuth授权流程
+                self._trigger_oauth_authorization(provider)
+            
+            access_token = oauth_manager.get_current_token()
+            
+            if not access_token:
+                # 触发OAuth授权流程
+                self._trigger_oauth_authorization(provider)
+            
+            return access_token
+        else:
+            # 直接返回配置中的auth_value
+            debug(LogRecord(
+                event=LogEvent.GET_PROVIDER_HEADERS_START.value,
+                message=f"Using configured auth_value for {provider.name} (non-oauth)"
+            ))
+            return provider.auth_value
     
     def _get_oauth_manager(self):
         """获取OAuth管理器"""
@@ -151,7 +206,7 @@ class ProviderAuth:
         )
         raise HTTPStatusError("401 Unauthorized", request=response.request, response=response)
     
-    def handle_oauth_authorization_required(self, provider: ProviderProtocol, http_status_code: int = 401) -> str:
+    def handle_oauth_authorization_required(self, provider: ProviderProtocol, http_status_code: int = 401):
         """处理OAuth授权需求的用户交互"""
         if provider.name == "Claude Code Official":
             # Check if OAuth manager is available
@@ -159,20 +214,10 @@ class ProviderAuth:
             
             if not oauth_manager:
                 self._print_oauth_manager_unavailable()
-                return ""
-            
-            # Get authorization URL from OAuth manager
-            auth_url = oauth_manager.generate_login_url()
-            if not auth_url:
-                self._print_oauth_setup_failed()
-                return ""
             
             # Print authorization instructions
-            self._print_oauth_authorization_instructions(auth_url, http_status_code)
-            return auth_url
-        
-        return ""
-    
+            self._print_oauth_authorization_instructions(http_status_code)
+
     def _print_oauth_manager_unavailable(self):
         """打印OAuth管理器不可用的提示"""
         print("\n" + "="*80)
@@ -194,10 +239,8 @@ class ProviderAuth:
         print("="*80)
         print()
     
-    def _print_oauth_authorization_instructions(self, auth_url: str, http_status_code: int):
+    def _print_oauth_authorization_instructions(self, http_status_code: int):
         """打印OAuth授权指令"""
-        # Note: auth_url parameter kept for interface compatibility but not used
-        # as we now direct users to the local URL generator
         print("\n" + "="*80)
         if http_status_code == 403:
             print("🔒 FORBIDDEN ACCESS - OAUTH AUTHENTICATION REQUIRED")

@@ -26,7 +26,10 @@ class LogEvent(enum.Enum):
     PROVIDER_ERROR_BELOW_THRESHOLD = "provider_error_below_threshold"  # Provider错误数未达阈值
     PROVIDER_UNHEALTHY_NO_FAILOVER = "provider_unhealthy_no_failover"  # Provider不健康但无法failover
     GET_PROVIDER_HEADERS_START = "get_provider_headers_start"
-    
+    ORIGINAL_REQUEST_HEADERS_RECEIVED = "original_request_headers_received"
+    FINAL_PROVIDER_HEADERS = "final_provider_headers"
+    CLAUDE_OFFICIAL_HEADERS_APPLIED = "claude_official_headers_applied"
+
     # Streaming events
     SSE_EXTRACTION_COMPLETE = "sse_extraction_complete"
     ERROR_SENT_TO_CLIENT = "error_sent_to_client"
@@ -129,6 +132,7 @@ class LogEvent(enum.Enum):
     OAUTH_TOKENS_SAVED_AFTER_EXCHANGE = "oauth_tokens_saved_after_exchange"
     OAUTH_SAVE_FAILED_AFTER_EXCHANGE = "oauth_save_failed_after_exchange"
     OAUTH_EXCHANGE_SUCCESS = "oauth_exchange_success"
+    OAUTH_TOKEN_EXCHANGE_DEBUG = "oauth_token_exchange_debug"
     OAUTH_TOKEN_EXPIRY = "oauth_token_expiry"
     OAUTH_AUTO_REFRESH_STARTED = "oauth_auto_refresh_started"
     OAUTH_EXCHANGE_ERROR = "oauth_exchange_error"
