@@ -8,8 +8,8 @@
 from typing import Dict, Optional, Protocol
 from enum import Enum
 
-from utils import debug, LogRecord, LogEvent, mask_sensitive_data
-
+from utils import debug, LogRecord, LogEvent
+from utils.logging.formatters import mask_sensitive_data
 
 class AuthType(str, Enum):
     API_KEY = "api_key"
