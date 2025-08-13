@@ -107,6 +107,7 @@ model_routes:
     - provider: "Claude Code Official"
       model: "passthrough"
       priority: 2
+      account_email: "your_email@example.com"
     - provider: "AICODE"
       model: "passthrough"
       priority: 3
