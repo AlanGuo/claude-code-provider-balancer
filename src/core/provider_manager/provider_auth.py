@@ -27,6 +27,7 @@ class ProviderProtocol(Protocol):
     type: ProviderType
     auth_type: AuthType
     auth_value: str
+    account_email: Optional[str]
 
 
 class ProviderAuth:
@@ -164,7 +165,20 @@ class ProviderAuth:
                 # OAuth manager未初始化，触发OAuth授权流程
                 self._trigger_oauth_authorization(provider)
             
-            access_token = oauth_manager.get_current_token()
+            # 如果provider有指定account_email，则获取对应账户的token
+            if hasattr(provider, 'account_email') and provider.account_email:
+                access_token = oauth_manager.get_token_by_email(provider.account_email)
+                debug(LogRecord(
+                    event=LogEvent.OAUTH_TOKEN_USED_BY_EMAIL.value,
+                    message=f"Requesting OAuth token for account {provider.account_email} from provider {provider.name}"
+                ))
+            else:
+                # 否则使用轮询机制获取token
+                access_token = oauth_manager.get_current_token()
+                debug(LogRecord(
+                    event=LogEvent.OAUTH_TOKEN_USED.value,
+                    message=f"Using round-robin OAuth token for provider {provider.name}"
+                ))
             
             if not access_token:
                 # 触发OAuth授权流程
@@ -216,7 +230,7 @@ class ProviderAuth:
                 self._print_oauth_manager_unavailable()
             
             # Print authorization instructions
-            self._print_oauth_authorization_instructions(http_status_code)
+            self._print_oauth_authorization_instructions(http_status_code, provider)
 
     def _print_oauth_manager_unavailable(self):
         """打印OAuth管理器不可用的提示"""
@@ -239,13 +253,17 @@ class ProviderAuth:
         print("="*80)
         print()
     
-    def _print_oauth_authorization_instructions(self, http_status_code: int):
+    def _print_oauth_authorization_instructions(self, http_status_code: int, provider: Optional[ProviderProtocol] = None):
         """打印OAuth授权指令"""
         print("\n" + "="*80)
         if http_status_code == 403:
             print("🔒 FORBIDDEN ACCESS - OAUTH AUTHENTICATION REQUIRED")
         else:  # 401
             print("🔐 AUTHENTICATION REQUIRED - OAUTH LOGIN NEEDED")
+        
+        if provider and hasattr(provider, 'account_email') and provider.account_email:
+            print(f"👤 Required account: {provider.account_email}")
+        
         print("="*80)
         print()
         print("To continue using Claude Code Provider Balancer, you need to:")
@@ -254,6 +272,10 @@ class ProviderAuth:
         print("   http://localhost:9090/oauth/generate-url")
         print()
         print("2. 🔑 Sign in with your Claude Code account")
+        
+        if provider and hasattr(provider, 'account_email') and provider.account_email:
+            print(f"   ⚠️  Make sure to use account: {provider.account_email}")
+        
         print()
         print("3. ✅ Grant permission to the application")
         print()

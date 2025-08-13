@@ -1,6 +1,6 @@
 [project]
 name = "claude-code-provider-balancer"
-version = "0.1.6"
+version = "0.1.7"
 description = "Provider balancer and translates for Anthropic API and OpenAI/LiteLLM"
 readme = "README.md"
 requires-python = ">=3.10"

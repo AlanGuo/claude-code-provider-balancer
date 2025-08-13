@@ -52,6 +52,7 @@ class ModelRoute:
     model: str
     priority: int
     enabled: bool = True
+    account_email: Optional[str] = None  # 可选的账户邮箱，用于区分相同name的providers
 
 
 @dataclass
@@ -64,6 +65,7 @@ class Provider:
     enabled: bool = True
     proxy: Optional[str] = None
     streaming_mode: StreamingMode = StreamingMode.AUTO
+    account_email: Optional[str] = None  # 新增字段，用于OAuth账户标识
     failure_count: int = 0
     last_failure_time: float = 0  # 保留作为统计指标
     last_unhealthy_time: float = 0  # 用于健康检查的时间戳
@@ -183,11 +185,12 @@ class ProviderManager:
                         auth_value=provider_config['auth_value'],
                         enabled=provider_config.get('enabled', True),
                         proxy=provider_config.get('proxy'),
-                        streaming_mode=streaming_mode
+                        streaming_mode=streaming_mode,
+                        account_email=provider_config.get('account_email')  # 加载账户邮箱
                     )
                     debug(LogRecord(
                         event=LogEvent.PROVIDER_LOADED.value,
-                        message=f"Loaded provider {provider.name} with auth_type={provider.auth_type}, auth_value=[DREDACTED]"
+                        message=f"Loaded provider {provider.name} with auth_type={provider.auth_type}, auth_value=[REDACTED], account_email={provider.account_email}"
                     ))
                     self.providers.append(provider)
             
@@ -212,16 +215,35 @@ class ProviderManager:
                         provider=route_config['provider'],
                         model=route_config['model'],
                         priority=route_config['priority'],
-                        enabled=route_config.get('enabled', True)
+                        enabled=route_config.get('enabled', True),
+                        account_email=route_config.get('account_email')  # 支持account_email字段
                     )
                     route_list.append(route)
             self.model_routes[model_pattern] = route_list
     
     def _get_provider_by_name(self, name: str) -> Optional[Provider]:
-        """根据名称获取服务商"""
+        """根据名称获取服务商（返回第一个匹配的，保持向后兼容）"""
         for provider in self.providers:
             if provider.name == name:
                 return provider
+        return None
+    
+    def get_provider_by_name_and_account(self, name: str, account_email: Optional[str] = None) -> Optional[Provider]:
+        """根据名称和账户邮箱获取服务商"""
+        for provider in self.providers:
+            if provider.name == name:
+                # 如果指定了account_email，必须完全匹配（包括None）
+                if account_email is not None:
+                    if provider.account_email and provider.account_email.lower() == account_email.lower():
+                        return provider
+                # 如果没有指定account_email，优先返回也没有account_email的provider
+                elif provider.account_email is None:
+                    return provider
+        
+        # 如果没有找到精确匹配，且没有指定account_email，返回第一个匹配name的
+        if account_email is None:
+            return self._get_provider_by_name(name)
+        
         return None
     
     def _matches_pattern(self, model_name: str, pattern: str) -> bool:
@@ -304,7 +326,7 @@ class ProviderManager:
             if not route.enabled:
                 continue
                 
-            provider = self._get_provider_by_name(route.provider)
+            provider = self.get_provider_by_name_and_account(route.provider, route.account_email)
             if not provider or not provider.enabled or not provider.is_healthy(cooldown):
                 continue
             

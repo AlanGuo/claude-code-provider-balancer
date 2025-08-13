@@ -172,6 +172,11 @@ class LogEvent(enum.Enum):
     OAUTH_MANUAL_REFRESH_ERROR = "oauth_manual_refresh_error"
     OAUTH_MANAGER_CHECK = "oauth_manager_check"
     OAUTH_MANAGER_INIT_FAILED = "oauth_manager_init_failed"
+    OAUTH_GET_TOKEN_BY_EMAIL_NO_EMAIL = "oauth_get_token_by_email_no_email"
+    OAUTH_GET_TOKEN_BY_EMAIL_NO_TOKENS = "oauth_get_token_by_email_no_tokens"
+    OAUTH_TOKEN_USED_BY_EMAIL = "oauth_token_used_by_email"
+    OAUTH_TOKEN_EXPIRED_BY_EMAIL = "oauth_token_expired_by_email"
+    OAUTH_ACCOUNT_NOT_FOUND = "oauth_account_not_found"
 
 
 # Initialize logger - will be set up when module is initialized

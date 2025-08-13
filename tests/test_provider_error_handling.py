@@ -953,7 +953,7 @@ class TestProviderErrorHandling:
                     f"{env.balancer_url}/v1/messages", 
                     json=request_data
                 )
-                assert response2.status_code == 404  # All providers unavailable after threshold reached
+                assert response2.status_code == 503  # All providers unavailable after threshold reached
                 
                 # Wait for timeout reset (3 seconds > 2 seconds timeout)
                 await asyncio.sleep(3)

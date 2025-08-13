@@ -5,7 +5,7 @@ Handles client disconnections gracefully through exception-based detection.
 
 import asyncio
 import json
-from typing import List, AsyncGenerator, Tuple, Optional, Dict, Any
+from typing import List, AsyncGenerator, Optional, Dict, Any
 from fastapi import Request
 from utils.logging import debug, info, error, LogRecord, LogEvent
 
@@ -134,85 +134,164 @@ class ParallelBroadcaster:
         # Add the duplicate client
         self.add_client(duplicate_request, duplicate_request_id, "duplicate")
         
-        # First, yield all previously collected chunks
-        for i, chunk in enumerate(self.collected_chunks):
-            try:
-                yield chunk
-                debug(
-                    LogRecord(
-                        LogEvent.HISTORICAL_CHUNK_YIELDED_TO_DUPLICATE.value,
-                        f"Yielded historical chunk {i+1}/{len(self.collected_chunks)} to duplicate ({len(chunk)} bytes)",
-                        duplicate_request_id,
-                        {
-                            "provider": self.provider_name,
-                            "chunk_index": i+1,
-                            "chunk_size": len(chunk),
-                            "is_historical": True
-                        }
+        try:
+            # First, yield all previously collected chunks
+            for i, chunk in enumerate(self.collected_chunks):
+                try:
+                    yield chunk
+                    debug(
+                        LogRecord(
+                            LogEvent.HISTORICAL_CHUNK_YIELDED_TO_DUPLICATE.value,
+                            f"Yielded historical chunk {i+1}/{len(self.collected_chunks)} to duplicate ({len(chunk)} bytes)",
+                            duplicate_request_id,
+                            {
+                                "provider": self.provider_name,
+                                "chunk_index": i+1,
+                                "chunk_size": len(chunk),
+                                "is_historical": True
+                            }
+                        )
                     )
-                )
-            except Exception as e:
-                error(
-                    LogRecord(
-                        LogEvent.DUPLICATE_DISCONNECTED_DURING_HISTORICAL_CHUNK.value,
-                        f"Duplicate client disconnected during historical chunk {i+1}: {type(e).__name__}: {e}",
-                        duplicate_request_id,
-                        {
-                            "provider": self.provider_name,
-                            "chunk_index": i+1,
-                            "error": str(e)
-                        }
+                except (asyncio.CancelledError, GeneratorExit):
+                    # Handle graceful cancellation/closure
+                    debug(
+                        LogRecord(
+                            LogEvent.DUPLICATE_DISCONNECTED_DURING_HISTORICAL_CHUNK.value,
+                            f"Duplicate client cancelled during historical chunk {i+1}",
+                            duplicate_request_id,
+                            {
+                                "provider": self.provider_name,
+                                "chunk_index": i+1,
+                                "reason": "cancelled_or_closed"
+                            }
+                        )
                     )
-                )
-                # Mark this duplicate as inactive
-                if self.clients:
-                    self.clients[-1].is_active = False
-                return
-        
-        # Now yield future chunks as they come
-        # This will be handled by the main streaming loop
-        while self.streaming_active:
-            # Wait for new chunks to be added to collected_chunks
-            current_chunk_count = len(self.collected_chunks)
-            await asyncio.sleep(0.01)  # Small delay to avoid busy waiting
+                    # Mark this duplicate as inactive
+                    if self.clients:
+                        self.clients[-1].is_active = False
+                    return
+                except Exception as e:
+                    error(
+                        LogRecord(
+                            LogEvent.DUPLICATE_DISCONNECTED_DURING_HISTORICAL_CHUNK.value,
+                            f"Duplicate client disconnected during historical chunk {i+1}: {type(e).__name__}: {e}",
+                            duplicate_request_id,
+                            {
+                                "provider": self.provider_name,
+                                "chunk_index": i+1,
+                                "error": str(e)
+                            }
+                        )
+                    )
+                    # Mark this duplicate as inactive
+                    if self.clients:
+                        self.clients[-1].is_active = False
+                    return
             
-            # Check if new chunks were added
-            if len(self.collected_chunks) > current_chunk_count:
-                # Yield new chunks
-                for i in range(current_chunk_count, len(self.collected_chunks)):
-                    chunk = self.collected_chunks[i]
-                    try:
-                        yield chunk
-                        debug(
-                            LogRecord(
-                                LogEvent.LIVE_CHUNK_YIELDED_TO_DUPLICATE.value,
-                                f"Yielded live chunk {i+1} to duplicate ({len(chunk)} bytes)",
-                                duplicate_request_id,
-                                {
-                                    "provider": self.provider_name,
-                                    "chunk_index": i+1,
-                                    "chunk_size": len(chunk),
-                                    "is_historical": False
-                                }
-                            )
+            # Now yield future chunks as they come
+            # This will be handled by the main streaming loop
+            while self.streaming_active:
+                try:
+                    # Check for cancellation before sleeping
+                    if not self.streaming_active:
+                        break
+                        
+                    # Wait for new chunks to be added to collected_chunks
+                    current_chunk_count = len(self.collected_chunks)
+                    await asyncio.sleep(0.01)  # Small delay to avoid busy waiting
+                    
+                    # Check if new chunks were added
+                    if len(self.collected_chunks) > current_chunk_count:
+                        # Yield new chunks
+                        for i in range(current_chunk_count, len(self.collected_chunks)):
+                            chunk = self.collected_chunks[i]
+                            try:
+                                yield chunk
+                                debug(
+                                    LogRecord(
+                                        LogEvent.LIVE_CHUNK_YIELDED_TO_DUPLICATE.value,
+                                        f"Yielded live chunk {i+1} to duplicate ({len(chunk)} bytes)",
+                                        duplicate_request_id,
+                                        {
+                                            "provider": self.provider_name,
+                                            "chunk_index": i+1,
+                                            "chunk_size": len(chunk),
+                                            "is_historical": False
+                                        }
+                                    )
+                                )
+                            except (asyncio.CancelledError, GeneratorExit):
+                                # Handle graceful cancellation/closure
+                                debug(
+                                    LogRecord(
+                                        LogEvent.DUPLICATE_DISCONNECTED_DURING_LIVE_CHUNK.value,
+                                        f"Duplicate client cancelled during live chunk {i+1}",
+                                        duplicate_request_id,
+                                        {
+                                            "provider": self.provider_name,
+                                            "chunk_index": i+1,
+                                            "reason": "cancelled_or_closed"
+                                        }
+                                    )
+                                )
+                                # Mark this duplicate as inactive
+                                if self.clients:
+                                    self.clients[-1].is_active = False
+                                return
+                            except Exception as e:
+                                error(
+                                    LogRecord(
+                                        LogEvent.DUPLICATE_DISCONNECTED_DURING_LIVE_CHUNK.value,
+                                        f"Duplicate client disconnected during live chunk {i+1}: {type(e).__name__}: {e}",
+                                        duplicate_request_id,
+                                        {
+                                            "provider": self.provider_name,
+                                            "chunk_index": i+1,
+                                            "error": str(e)
+                                        }
+                                    )
+                                )
+                                # Mark this duplicate as inactive
+                                if self.clients:
+                                    self.clients[-1].is_active = False
+                                return
+                except (asyncio.CancelledError, GeneratorExit):
+                    # Handle cancellation in the main loop
+                    debug(
+                        LogRecord(
+                            LogEvent.DUPLICATE_DISCONNECTED_DURING_LIVE_CHUNK.value,
+                            "Duplicate client cancelled during streaming loop",
+                            duplicate_request_id,
+                            {
+                                "provider": self.provider_name,
+                                "reason": "cancelled_or_closed_in_loop"
+                            }
                         )
-                    except Exception as e:
-                        error(
-                            LogRecord(
-                                LogEvent.DUPLICATE_DISCONNECTED_DURING_LIVE_CHUNK.value,
-                                f"Duplicate client disconnected during live chunk {i+1}: {type(e).__name__}: {e}",
-                                duplicate_request_id,
-                                {
-                                    "provider": self.provider_name,
-                                    "chunk_index": i+1,
-                                    "error": str(e)
-                                }
-                            )
-                        )
-                        # Mark this duplicate as inactive
-                        if self.clients:
-                            self.clients[-1].is_active = False
-                        return
+                    )
+                    # Mark this duplicate as inactive
+                    if self.clients:
+                        self.clients[-1].is_active = False
+                    return
+        except (asyncio.CancelledError, GeneratorExit):
+            # Handle top-level cancellation
+            debug(
+                LogRecord(
+                    LogEvent.DUPLICATE_DISCONNECTED_DURING_LIVE_CHUNK.value,
+                    "Duplicate client generator cancelled",
+                    duplicate_request_id,
+                    {
+                        "provider": self.provider_name,
+                        "reason": "generator_cancelled"
+                    }
+                )
+            )
+            # Mark this duplicate as inactive
+            if self.clients:
+                self.clients[-1].is_active = False
+        finally:
+            # Ensure client is marked as inactive on exit
+            if self.clients:
+                self.clients[-1].is_active = False
     
     def get_active_clients(self) -> List[ClientStream]:
         """Get list of currently active clients"""
@@ -361,7 +440,7 @@ class ParallelBroadcaster:
                         info(
                             LogRecord(
                                 LogEvent.STOPPING_NO_DUPLICATE_CLIENTS.value,
-                                f"Original client disconnected and no duplicate clients, stopping provider stream",
+                                "Original client disconnected and no duplicate clients, stopping provider stream",
                                 self.request_id,
                                 {
                                     "provider": self.provider_name,
@@ -451,7 +530,7 @@ class ParallelBroadcaster:
                 debug(
                     LogRecord(
                         LogEvent.ERROR_SENT_TO_CLIENT.value,
-                        f"Sent original error message to client after provider error",
+                        "Sent original error message to client after provider error",
                         self.request_id,
                         {
                             "provider": self.provider_name,
@@ -565,7 +644,7 @@ async def handle_duplicate_stream_request(signature: str, duplicate_request: Req
         info(
             LogRecord(
                 LogEvent.DUPLICATE_REQUEST_FOUND_ACTIVE_BROADCASTER.value,
-                f"Found active broadcaster for duplicate request",
+                "Found active broadcaster for duplicate request",
                 duplicate_request_id,
                 {
                     "original_request_id": broadcaster.request_id,
@@ -576,15 +655,32 @@ async def handle_duplicate_stream_request(signature: str, duplicate_request: Req
             )
         )
         
-        # Use the broadcaster's method to handle the duplicate
-        async for chunk in broadcaster.add_duplicate_request(duplicate_request, duplicate_request_id):
-            yield chunk
+        try:
+            # Use the broadcaster's method to handle the duplicate
+            async for chunk in broadcaster.add_duplicate_request(duplicate_request, duplicate_request_id):
+                yield chunk
+        except (asyncio.CancelledError, GeneratorExit):
+            # Handle graceful cancellation/closure
+            debug(
+                LogRecord(
+                    LogEvent.DUPLICATE_DISCONNECTED_DURING_LIVE_CHUNK.value,
+                    "Duplicate stream request cancelled or closed",
+                    duplicate_request_id,
+                    {
+                        "original_request_id": broadcaster.request_id,
+                        "provider": broadcaster.provider_name,
+                        "signature": signature[:16] + "...",
+                        "reason": "handle_duplicate_cancelled"
+                    }
+                )
+            )
+            return
     else:
         # No active broadcaster found
         debug(  # Changed from error to debug since this is expected behavior
             LogRecord(
                 LogEvent.DUPLICATE_REQUEST_NO_ACTIVE_BROADCASTER.value,
-                f"No active broadcaster found for duplicate request",
+                "No active broadcaster found for duplicate request",
                 duplicate_request_id,
                 {
                     "signature": signature[:16] + "...",

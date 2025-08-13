@@ -7,14 +7,25 @@
 # - background: Background collection then streaming to client (supports failover, caching)
 
 providers:
-  # Claude Code 官方授权 (Claude Console API)
+  # Claude Code 官方授权 (Claude oauth)
   - name: "Claude Code Official"
     type: "anthropic"
     base_url: "https://api.anthropic.com"
     auth_type: "auth_token"
     auth_value: "oauth"  # 使用OAuth token认证，从keyring获取
+    account_email: "your_email@example.com"
     proxy: "http://127.0.0.1:10808"
     enabled: false
+
+  # Claude Code 官方授权 (Claude Account) - 账户2示例（如果有多个账户）
+  # - name: "Claude Code Official"
+  #   type: "anthropic"
+  #   base_url: "https://api.anthropic.com"
+  #   auth_type: "auth_token"
+  #   auth_value: "oauth"  # 使用OAuth token认证，从keyring获取
+  #   account_email: "your-second-account@gmail.com"  # 指定第二个OAuth账户邮箱
+  #   proxy: "http://127.0.0.1:20171"
+  #   enabled: false  # 默认禁用，需要时启用
 
   # 使用auth_token的Claude Code服务商示例
   - name: "GAC"
@@ -243,7 +254,7 @@ settings:
 
   # 应用信息
   app_name: "ClaudeCode Providers Balancer"
-  app_version: "0.1.6"  # 更新版本号
+  app_version: "0.1.7"  # 更新版本号
 
   # OAuth Token持久化存储设置
   oauth:

@@ -755,6 +755,66 @@ class OAuthManager:
             ))
             return None
     
+    def get_token_by_email(self, account_email: str) -> Optional[str]:
+        """根据账户邮箱获取对应的access token"""
+        if not account_email:
+            debug(LogRecord(
+                event=LogEvent.OAUTH_GET_TOKEN_BY_EMAIL_NO_EMAIL.value,
+                message="No account_email provided, falling back to round-robin"
+            ))
+            return self.get_current_token()
+        
+        with self._lock:
+            if not self.token_credentials:
+                debug(LogRecord(
+                    event=LogEvent.OAUTH_GET_TOKEN_BY_EMAIL_NO_TOKENS.value,
+                    message=f"No OAuth tokens available for account {account_email}"
+                ))
+                return None
+            
+            # Find token for specific account
+            for creds in self.token_credentials:
+                if (creds.account_email and creds.account_email.lower() == account_email.lower()) or \
+                   (creds.account_id and creds.account_id.lower() == account_email.lower()):
+                    
+                    # Check if token is not expired (with 5-minute buffer)
+                    if not creds.is_expired(300):
+                        # Update usage statistics
+                        current_time = int(time.time())
+                        creds.usage_count += 1
+                        creds.last_used = current_time
+                        
+                        debug(LogRecord(
+                            event=LogEvent.OAUTH_TOKEN_USED_BY_EMAIL.value,
+                            message=f"Using token from {creds.account_email or creds.account_id} (usage: {creds.usage_count})"
+                        ))
+                        
+                        # Save updated statistics to keyring (async to avoid blocking)
+                        if self.enable_persistence:
+                            import asyncio
+                            try:
+                                # Schedule async save without blocking
+                                loop = asyncio.get_event_loop()
+                                asyncio.create_task(self._safe_save_to_keyring())
+                            except Exception:
+                                # If async fails, skip saving to avoid blocking
+                                pass
+                        
+                        return creds.access_token
+                    else:
+                        warning(LogRecord(
+                            event=LogEvent.OAUTH_TOKEN_EXPIRED_BY_EMAIL.value,
+                            message=f"Token for account {account_email} is expired"
+                        ))
+                        return None
+            
+            # Account not found
+            warning(LogRecord(
+                event=LogEvent.OAUTH_ACCOUNT_NOT_FOUND.value,
+                message=f"No OAuth token found for account {account_email}"
+            ))
+            return None
+    
     def get_tokens_status(self) -> List[Dict[str, Any]]:
         """Get status of all stored tokens (safe, no sensitive info)"""
         with self._lock:
