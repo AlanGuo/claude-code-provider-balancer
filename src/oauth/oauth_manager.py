@@ -231,7 +231,7 @@ class OAuthManager:
             
             info(LogRecord(
                 event=LogEvent.OAUTH_TOKENS_LOADED.value,
-                message=f"Loaded {len(self.token_credentials)} tokens from keyring (saved: {saved_time})"
+                message=f"Loaded {len(self.token_credentials)} tokens from keyring (last_saved: {saved_time})"
             ))
             
             # Clean up expired tokens
