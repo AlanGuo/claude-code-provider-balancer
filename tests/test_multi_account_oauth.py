@@ -19,13 +19,6 @@ import time
 from typing import Dict, Any
 from unittest.mock import Mock, patch
 
-# Import the new testing framework
-from framework import (
-    Scenario, ProviderConfig, ProviderBehavior, ExpectedBehavior,
-    Environment, TestConfigFactory
-)
-
-
 class TestMultiAccountOAuth:
     """Multi-account OAuth configuration and functionality tests."""
 
