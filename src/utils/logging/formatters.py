@@ -69,7 +69,7 @@ def mask_sensitive_string(text: str, mask_char: str = "*") -> str:
         # API Keys (various formats)
         (r'(sk-[a-zA-Z0-9-_]{20,})', lambda m: m.group(1)[:10] + mask_char * 10),
         (r'(Bearer\s+[a-zA-Z0-9-_\.]{20,})', lambda m: m.group(1)[:15] + mask_char * 10),
-        (r'([a-zA-Z0-9-_]{32,})', lambda m: m.group(1)[:8] + mask_char * 8 + m.group(1)[-4:] if len(m.group(1)) > 16 else m.group(1)),
+        # (r'([a-zA-Z0-9-_]{32,})', lambda m: m.group(1)[:8] + mask_char * 8 + m.group(1)[-4:] if len(m.group(1)) > 16 else m.group(1)),
         
         # Authorization headers
         (r'("?[Aa]uthorization"?\s*:\s*"?)([^"\s,}]+)', lambda m: m.group(1) + mask_char * 10),

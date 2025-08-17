@@ -7,6 +7,7 @@
 
 from typing import Dict, Optional, Protocol
 from enum import Enum
+from urllib.parse import urlparse
 
 from utils import debug, LogRecord, LogEvent
 from utils.logging.formatters import mask_sensitive_data
@@ -28,6 +29,7 @@ class ProviderProtocol(Protocol):
     auth_type: AuthType
     auth_value: str
     account_email: Optional[str]
+    base_url: str
 
 
 class ProviderAuth:
@@ -38,9 +40,7 @@ class ProviderAuth:
     
     def get_provider_headers(self, provider: ProviderProtocol, original_headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         """获取Provider的认证头部，可选择性合并原始头部"""
-        headers = {
-            "Content-Type": "application/json"
-        }
+        headers = {}
         
         debug(LogRecord(
             event=LogEvent.GET_PROVIDER_HEADERS_START.value,
@@ -58,15 +58,22 @@ class ProviderAuth:
                 }
             ))
         
-        # 复制原始请求头（排除需要替换的认证头、host头和content-length头）
+        # 复制原始请求头（排除需要替换的认证头和content-length头）
         if original_headers:
             headers.update(self._filter_original_headers(original_headers))
+        
+        # 添加Host头部，从provider的base_url中提取
+        self._add_host_header(headers, provider)
         
         # 根据认证模式设置认证头部
         if provider.auth_value == "passthrough":
             self._handle_passthrough_auth(headers, provider, original_headers)
         else:
             self._handle_standard_auth(headers, provider)
+        
+        # 确保有Content-Type头部（如果原始请求没有的话）
+        if not any(key.lower() == 'content-type' for key in headers.keys()):
+            headers["content-type"] = "application/json"
         
         # 在return之前添加最终请求头打印
         debug(LogRecord(
@@ -83,13 +90,22 @@ class ProviderAuth:
     def _filter_original_headers(self, original_headers: Dict[str, str]) -> Dict[str, str]:
         """过滤原始头部，移除需要替换的认证相关头部"""
         filtered = {}
-        excluded_headers = {'authorization', 'x-api-key', 'host', 'content-length'}
+        excluded_headers = {'authorization', 'x-api-key', 'host'}
         
         for key, value in original_headers.items():
             if key.lower() not in excluded_headers:
                 filtered[key] = value
         
         return filtered
+    
+    def _add_host_header(self, headers: Dict[str, str], provider: ProviderProtocol):
+        """从provider的base_url中提取host并添加到headers"""
+        parsed_url = urlparse(provider.base_url)
+        if parsed_url.hostname:
+            host = parsed_url.hostname
+            if parsed_url.port:
+                host = f"{host}:{parsed_url.port}"
+            headers["host"] = host
     
     def _handle_passthrough_auth(self, headers: Dict[str, str], provider: ProviderProtocol, original_headers: Optional[Dict[str, str]]):
         """处理透传认证模式"""
@@ -117,15 +133,12 @@ class ProviderAuth:
         if provider.auth_type == AuthType.API_KEY:
             if provider.type == ProviderType.ANTHROPIC:
                 headers["x-api-key"] = auth_value
-                headers["anthropic-version"] = "2023-06-01"
             else:  # OpenAI compatible
                 headers["Authorization"] = f"Bearer {auth_value}"
         elif provider.auth_type == AuthType.AUTH_TOKEN:
             # 对于使用auth_token的服务商
             headers["Authorization"] = f"Bearer {auth_value}"
             if provider.type == ProviderType.ANTHROPIC:
-                headers["anthropic-version"] = "2023-06-01"
-                
                 # 对于Claude Code Official，需要特殊处理头部以确保OAuth兼容性
                 if provider.name == "Claude Code Official" and provider.auth_value == "oauth":
                     self._apply_claude_official_headers_fix(headers)

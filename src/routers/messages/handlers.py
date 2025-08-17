@@ -205,7 +205,7 @@ class MessageHandler:
             return f"All configured providers for model '{model}' are currently unable to process requests."
 
 
-    async def _make_nonstreaming_http_request(self, provider: Provider, endpoint: str, data: Dict[str, Any], request_id: str, stream: bool = False, original_headers: Optional[Dict[str, str]] = None) -> Union[httpx.Response, Dict[str, Any]]:
+    async def _make_nonstreaming_http_request(self, provider: Provider, endpoint: str, data: Dict[str, Any], request_id: str, stream: bool = False, original_headers: Optional[Dict[str, str]] = None, raw_body: Optional[bytes] = None) -> Union[httpx.Response, Dict[str, Any]]:
         """Make a request to a specific provider"""
         url = self.provider_manager.get_request_url(provider, endpoint)
         headers = self.provider_manager.get_provider_headers(provider, original_headers)
@@ -241,28 +241,44 @@ class MessageHandler:
         # Simulate testing delay if configured
         await simulate_testing_delay(data, request_id)
 
-        # Handle JSON serialization manually to prevent Unicode encoding errors
-        try:
-            json_data = json.dumps(data, ensure_ascii=False)
-            # Test if the JSON string can be safely encoded to UTF-8
-            json_data.encode('utf-8')
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            # Log warning for Unicode issues but continue with ASCII fallback
-            warning(LogRecord(
-                event=LogEvent.REQUEST_RECEIVED.value,
-                message="Client request contains invalid Unicode characters, using ASCII encoding fallback",
-                request_id=request_id,
-                data={"provider": provider.name}
-            ))
-            json_data = json.dumps(data, ensure_ascii=True)
-        
-        # Set content-type header for manual JSON
+        # Use raw_body if provided and data hasn't been modified, otherwise serialize JSON
         headers = dict(headers) if headers else {}
-        headers['Content-Type'] = 'application/json'
+        
+        if raw_body is not None:
+            # Use original raw body to preserve exact formatting and content-length
+            request_body = raw_body
+            # Preserve original content-type and content-length when using raw body
+            if original_headers:
+                for key, value in original_headers.items():
+                    if key.lower() == 'content-type':
+                        headers['content-type'] = value
+                    elif key.lower() == 'content-length':
+                        headers['content-length'] = value
+        else:
+            # Data was modified, set standard JSON content-type and calculate new content-length
+            headers['content-type'] = 'application/json'
+            # Data was modified, need to serialize JSON manually
+            try:
+                json_data = json.dumps(data, ensure_ascii=False)
+                # Test if the JSON string can be safely encoded to UTF-8
+                json_data.encode('utf-8')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                # Log warning for Unicode issues but continue with ASCII fallback
+                warning(LogRecord(
+                    event=LogEvent.REQUEST_RECEIVED.value,
+                    message="Client request contains invalid Unicode characters, using ASCII encoding fallback",
+                    request_id=request_id,
+                    data={"provider": provider.name}
+                ))
+                json_data = json.dumps(data, ensure_ascii=True)
+            
+            request_body = json_data.encode('utf-8')
+            # Set content-length manually to ensure lowercase format
+            headers['content-length'] = str(len(request_body))
 
         async with httpx.AsyncClient(timeout=timeout_config, proxy=proxy_config) as client:
             try:
-                response = await client.post(url, content=json_data, headers=headers)
+                response = await client.post(url, content=request_body, headers=headers)
                 
                 # Check for HTTP error status codes first (for both streaming and non-streaming)
                 if response.status_code >= 400:
@@ -399,7 +415,7 @@ class MessageHandler:
                 log_provider_error(provider, http_error, request_id=request_id, request_type="non_streaming")
                 raise  # Re-raise the exception to maintain existing error handling flow
 
-    async def _make_streaming_http_request(self, provider: Provider, endpoint: str, data: Dict[str, Any], request_id: str, original_headers: Optional[Dict[str, str]] = None):
+    async def _make_streaming_http_request(self, provider: Provider, endpoint: str, data: Dict[str, Any], request_id: str, original_headers: Optional[Dict[str, str]] = None, raw_body: Optional[bytes] = None):
         """Make a streaming request to a specific provider using proper streaming context"""
         url = self.provider_manager.get_request_url(provider, endpoint)
         headers = self.provider_manager.get_provider_headers(provider, original_headers)
@@ -435,29 +451,45 @@ class MessageHandler:
         # Simulate testing delay if configured
         await simulate_testing_delay(data, request_id)
 
-        # Handle JSON serialization manually to prevent Unicode encoding errors
-        try:
-            json_data = json.dumps(data, ensure_ascii=False)
-            # Test if the JSON string can be safely encoded to UTF-8
-            json_data.encode('utf-8')
-        except (UnicodeEncodeError, UnicodeDecodeError):
-            # Log warning for Unicode issues but continue with ASCII fallback
-            warning(LogRecord(
-                event=LogEvent.REQUEST_RECEIVED.value,
-                message="Client streaming request contains invalid Unicode characters, using ASCII encoding fallback",
-                request_id=request_id,
-                data={"provider": provider.name}
-            ))
-            json_data = json.dumps(data, ensure_ascii=True)
-        
-        # Set content-type header for manual JSON
+        # Use raw_body if provided and data hasn't been modified, otherwise serialize JSON
         headers = dict(headers) if headers else {}
-        headers['Content-Type'] = 'application/json'
+        
+        if raw_body is not None:
+            # Use original raw body to preserve exact formatting and content-length
+            request_body = raw_body
+            # Preserve original content-type and content-length when using raw body
+            if original_headers:
+                for key, value in original_headers.items():
+                    if key.lower() == 'content-type':
+                        headers['content-type'] = value
+                    elif key.lower() == 'content-length':
+                        headers['content-length'] = value
+        else:
+            # Data was modified, set standard JSON content-type and calculate new content-length
+            headers['content-type'] = 'application/json'
+            # Data was modified, need to serialize JSON manually
+            try:
+                json_data = json.dumps(data, ensure_ascii=False)
+                # Test if the JSON string can be safely encoded to UTF-8
+                json_data.encode('utf-8')
+            except (UnicodeEncodeError, UnicodeDecodeError):
+                # Log warning for Unicode issues but continue with ASCII fallback
+                warning(LogRecord(
+                    event=LogEvent.REQUEST_RECEIVED.value,
+                    message="Client streaming request contains invalid Unicode characters, using ASCII encoding fallback",
+                    request_id=request_id,
+                    data={"provider": provider.name}
+                ))
+                json_data = json.dumps(data, ensure_ascii=True)
+            
+            request_body = json_data.encode('utf-8')
+            # Set content-length manually to ensure lowercase format
+            headers['content-length'] = str(len(request_body))
 
         # Use stream context manager for true real-time streaming
         async with httpx.AsyncClient(timeout=timeout_config, proxy=proxy_config) as client:
             try:
-                async with client.stream("POST", url, content=json_data, headers=headers) as response:
+                async with client.stream("POST", url, content=request_body, headers=headers) as response:
                     # Check for HTTP error status codes first
                     if response.status_code >= 400:
                         error_text = await response.aread()
@@ -573,18 +605,18 @@ class MessageHandler:
                 pass
             raise
 
-    async def make_anthropic_streaming_request(self, provider: Provider, messages_data: Dict[str, Any], request_id: str, original_headers: Optional[Dict[str, str]] = None):
+    async def make_anthropic_streaming_request(self, provider: Provider, messages_data: Dict[str, Any], request_id: str, original_headers: Optional[Dict[str, str]] = None, raw_body: Optional[bytes] = None):
         """Make a streaming request to an Anthropic-compatible provider"""
         # Always use new streaming method for real-time streaming
         # This ensures tests can detect fake streaming issues
         
         # Use new streaming method for real-time streaming
-        async for response in self._make_streaming_http_request(provider, "v1/messages", messages_data, request_id, original_headers):
+        async for response in self._make_streaming_http_request(provider, "v1/messages", messages_data, request_id, original_headers, raw_body):
             yield response
 
-    async def make_anthropic_nonstreaming_request(self, provider: Provider, messages_data: Dict[str, Any], request_id: str, original_headers: Optional[Dict[str, str]] = None) -> Union[httpx.Response, Dict[str, Any]]:
+    async def make_anthropic_nonstreaming_request(self, provider: Provider, messages_data: Dict[str, Any], request_id: str, original_headers: Optional[Dict[str, str]] = None, raw_body: Optional[bytes] = None) -> Union[httpx.Response, Dict[str, Any]]:
         """Make a non-streaming request to an Anthropic-compatible provider"""
-        response = await self._make_nonstreaming_http_request(provider, "v1/messages", messages_data, request_id, False, original_headers)
+        response = await self._make_nonstreaming_http_request(provider, "v1/messages", messages_data, request_id, False, original_headers, raw_body)
         return response
 
     async def make_openai_streaming_request(self, provider: Provider, openai_params: Dict[str, Any], request_id: str, original_headers: Optional[Dict[str, str]] = None) -> Any:

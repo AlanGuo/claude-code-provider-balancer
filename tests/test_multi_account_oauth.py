@@ -246,20 +246,26 @@ class TestMultiAccountOAuth:
             auth_value="sk-test-key"
         )
         
+        # Create mock original headers that would come from client
+        original_headers = {
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
+        
         # Mock the OAuth manager getter
         with patch.object(provider_auth, '_get_oauth_manager', return_value=mock_oauth_manager):
             # Test OAuth provider 1 gets correct token
-            headers1 = provider_auth.get_provider_headers(oauth_provider1)
+            headers1 = provider_auth.get_provider_headers(oauth_provider1, original_headers)
             assert headers1["Authorization"] == "Bearer oauth_token_user1"
             assert headers1["anthropic-version"] == "2023-06-01"
             
             # Test OAuth provider 2 gets correct token
-            headers2 = provider_auth.get_provider_headers(oauth_provider2)
+            headers2 = provider_auth.get_provider_headers(oauth_provider2, original_headers)
             assert headers2["Authorization"] == "Bearer oauth_token_user2"
             assert headers2["anthropic-version"] == "2023-06-01"
             
             # Test regular provider uses API key
-            headers3 = provider_auth.get_provider_headers(regular_provider)
+            headers3 = provider_auth.get_provider_headers(regular_provider, original_headers)
             assert headers3["x-api-key"] == "sk-test-key"
             assert headers3["anthropic-version"] == "2023-06-01"
         

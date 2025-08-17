@@ -48,7 +48,15 @@ class RequestContext:
     @property
     def is_streaming(self) -> bool:
         """Check if this is a streaming request."""
-        return self.messages_request.stream or False
+        return self.messages_request.stream
+    
+    @property
+    def can_use_raw_body(self) -> bool:
+        """Check if the original raw body can be used (no modifications to request content)."""
+        # Check if parsed_body has been modified compared to clean_request_body
+        # If only 'provider' field was removed and nothing else changed, we can use raw body
+        original_without_provider = {k: v for k, v in self.parsed_body.items() if k not in ['provider']}
+        return original_without_provider == self.clean_request_body or False
 
 
 class ResponseHandler(ABC):
@@ -79,8 +87,10 @@ class AnthropicStreamingHandler(ResponseHandler):
         # This allows failover if the provider fails before streaming starts
         try:
             # Get the provider stream generator
+            # Use raw_body if possible to preserve exact formatting and content-length
+            raw_body_to_use = context.raw_body if context.can_use_raw_body else None
             provider_stream_generator = message_handler.make_anthropic_streaming_request(
-                provider, context.clean_request_body, request_id, context.original_headers
+                provider, context.clean_request_body, request_id, context.original_headers, raw_body_to_use
             )
             
             # Try to get the first response object to verify connection
@@ -656,7 +666,7 @@ def create_messages_router(provider_manager: ProviderManager, settings: Any) -> 
         # Get request body for logging and caching
         raw_body = await request.body()
         parsed_body = json.loads(raw_body.decode('utf-8', errors='ignore'))
-        
+
         # Extract provider parameter separately before validation
         provider_name = parsed_body.pop("provider", None)
         
@@ -765,14 +775,17 @@ def create_messages_router(provider_manager: ProviderManager, settings: Any) -> 
         """Execute request for a single provider."""
         if provider.type == ProviderType.ANTHROPIC:
             # For Anthropic providers, use the appropriate method based on streaming
+            # Use raw_body if possible to preserve exact formatting and content-length
+            raw_body_to_use = context.raw_body if context.can_use_raw_body else None
+            
             if context.is_streaming:
                 # Return the async generator for streaming
                 return message_handler.make_anthropic_streaming_request(
-                    provider, context.clean_request_body, request_id, context.original_headers
+                    provider, context.clean_request_body, request_id, context.original_headers, raw_body_to_use
                 )
             else:
                 return await message_handler.make_anthropic_nonstreaming_request(
-                    provider, context.clean_request_body, request_id, context.original_headers
+                    provider, context.clean_request_body, request_id, context.original_headers, raw_body_to_use
                 )
         elif provider.type == ProviderType.OPENAI:
             # Convert to OpenAI format first
