@@ -203,6 +203,10 @@ settings:
     # 冷却期后会自动重试API，如果成功则恢复使用API
     api_failure_cooldown: 300  # 默认5分钟
 
+    # count_tokens API失败多少次后才标记为unavailable
+    # 在达到阈值前，会继续尝试调用API；达到阈值后进入冷却期
+    failure_threshold: 2  # 默认2次失败才标记unavailable
+
     # 是否完全禁用count_tokens API，始终使用本地fallback
     # 设置为true可以完全避免API调用，适用于所有provider都不支持的情况
     always_use_local: false

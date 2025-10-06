@@ -142,6 +142,7 @@ class ProviderManager:
         # 格式: {provider_name: {"available": bool, "last_check_time": float, "failure_count": int}}
         self._count_tokens_status: Dict[str, Dict[str, Any]] = {}
         self._count_tokens_cooldown: float = 300  # 默认5分钟冷却期
+        self._count_tokens_failure_threshold: int = 2  # 默认失败2次后才标记unavailable
         self._count_tokens_always_use_local: bool = False  # 是否完全禁用API
         self._count_tokens_timeout_override: Optional[float] = None  # 超时覆盖
 
@@ -173,6 +174,7 @@ class ProviderManager:
             # 加载count_tokens配置
             token_counting_config = self.settings.get('token_counting', {})
             self._count_tokens_cooldown = token_counting_config.get('api_failure_cooldown', 300)
+            self._count_tokens_failure_threshold = token_counting_config.get('failure_threshold', 2)
             self._count_tokens_always_use_local = token_counting_config.get('always_use_local', False)
             self._count_tokens_timeout_override = token_counting_config.get('timeout_override', None)
             
@@ -528,32 +530,53 @@ class ProviderManager:
             provider_name: Provider名称
             request_id: 请求ID (用于日志)
         """
+        # 更新或创建失败状态
         if provider_name not in self._count_tokens_status:
             self._count_tokens_status[provider_name] = {
-                "available": False,
+                "available": True,  # 初始状态为可用
                 "last_check_time": time.time(),
                 "failure_count": 1
             }
         else:
             status = self._count_tokens_status[provider_name]
-            status["available"] = False
             status["last_check_time"] = time.time()
             status["failure_count"] = status.get("failure_count", 0) + 1
 
-        # 记录日志
         status = self._count_tokens_status[provider_name]
-        warning(
-            LogRecord(
-                event=LogEvent.COUNT_TOKENS_API_UNAVAILABLE.value,
-                message=f"Marked count_tokens API as unavailable for provider {provider_name}, will use local fallback for {self._count_tokens_cooldown}s",
-                request_id=request_id,
-                data={
-                    "provider": provider_name,
-                    "cooldown_seconds": self._count_tokens_cooldown,
-                    "failure_count": status["failure_count"]
-                }
+        failure_count = status["failure_count"]
+
+        # 判断是否达到阈值
+        if failure_count >= self._count_tokens_failure_threshold:
+            # 达到阈值，标记为不可用
+            status["available"] = False
+
+            warning(
+                LogRecord(
+                    event=LogEvent.COUNT_TOKENS_API_UNAVAILABLE.value,
+                    message=f"Marked count_tokens API as unavailable for provider {provider_name} (failure_count={failure_count}/{self._count_tokens_failure_threshold}), will use local fallback for {self._count_tokens_cooldown}s",
+                    request_id=request_id,
+                    data={
+                        "provider": provider_name,
+                        "cooldown_seconds": self._count_tokens_cooldown,
+                        "failure_count": failure_count,
+                        "failure_threshold": self._count_tokens_failure_threshold
+                    }
+                )
             )
-        )
+        else:
+            # 未达到阈值，仅记录失败次数
+            debug(
+                LogRecord(
+                    event=LogEvent.COUNT_TOKENS_API_FAILED.value,
+                    message=f"Count tokens API failed for provider {provider_name} (failure_count={failure_count}/{self._count_tokens_failure_threshold}), will retry on next request",
+                    request_id=request_id,
+                    data={
+                        "provider": provider_name,
+                        "failure_count": failure_count,
+                        "failure_threshold": self._count_tokens_failure_threshold
+                    }
+                )
+            )
 
     def mark_count_tokens_api_success(self, provider_name: str, request_id: str = None):
         """

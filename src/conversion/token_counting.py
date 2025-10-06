@@ -222,7 +222,7 @@ async def count_tokens_for_anthropic_request(
         headers = provider_manager.get_provider_headers(provider, original_headers)
 
         # Call Anthropic's count_tokens API
-        url = f"{provider.base_url}/v1/messages/count_tokens"
+        url = f"{provider.base_url}/v1/messages/count_tokens?beta=true"
 
         # Check if there's a timeout override for count_tokens requests
         timeout_override = provider_manager.get_count_tokens_timeout_override()
