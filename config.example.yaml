@@ -196,6 +196,22 @@ settings:
   # 智能恢复设置
   sticky_provider_duration: 300  # 粘滞provider持续时间（秒），成功后多长时间内优先使用该provider（默认5分钟）
 
+  # Token计数API优化设置
+  token_counting:
+    # count_tokens API失败后的冷却时间(秒)
+    # 在冷却期内，直接使用本地tiktoken fallback，不再尝试调用API
+    # 冷却期后会自动重试API，如果成功则恢复使用API
+    api_failure_cooldown: 300  # 默认5分钟
+
+    # 是否完全禁用count_tokens API，始终使用本地fallback
+    # 设置为true可以完全避免API调用，适用于所有provider都不支持的情况
+    always_use_local: false
+
+    # count_tokens请求的超时时间(秒)
+    # 设置较短的超时可以快速失败并fallback到本地计算
+    # 如果不设置，将使用默认的非流式请求超时配置
+    timeout_override: 10  # 10秒超时，快速失败
+
   # 分离的错误检测配置
   # Exception错误模式 - 使用简单字符串匹配（宽松策略）
   unhealthy_exception_patterns:

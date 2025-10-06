@@ -135,9 +135,16 @@ class ProviderManager:
         
         # 健康检查配置
         self.unhealthy_threshold: int = 2
-        self.unhealthy_reset_on_success: bool = True 
+        self.unhealthy_reset_on_success: bool = True
         self.unhealthy_reset_timeout: float = 300  # 5分钟
-        
+
+        # count_tokens API可用性追踪
+        # 格式: {provider_name: {"available": bool, "last_check_time": float, "failure_count": int}}
+        self._count_tokens_status: Dict[str, Dict[str, Any]] = {}
+        self._count_tokens_cooldown: float = 300  # 默认5分钟冷却期
+        self._count_tokens_always_use_local: bool = False  # 是否完全禁用API
+        self._count_tokens_timeout_override: Optional[float] = None  # 超时覆盖
+
         self.load_config()
     
     def load_config(self):
@@ -162,6 +169,12 @@ class ProviderManager:
             self.unhealthy_threshold = self.settings.get('unhealthy_threshold', 2)
             self.unhealthy_reset_on_success = self.settings.get('unhealthy_reset_on_success', True)
             self.unhealthy_reset_timeout = self.settings.get('unhealthy_reset_timeout', 300)
+
+            # 加载count_tokens配置
+            token_counting_config = self.settings.get('token_counting', {})
+            self._count_tokens_cooldown = token_counting_config.get('api_failure_cooldown', 300)
+            self._count_tokens_always_use_local = token_counting_config.get('always_use_local', False)
+            self._count_tokens_timeout_override = token_counting_config.get('timeout_override', None)
             
             # 加载服务商配置
             providers_config = config.get('providers', [])
@@ -474,6 +487,117 @@ class ProviderManager:
 
         # Return the first healthy provider (could use selection strategy here if needed)
         return healthy_anthropic_providers[0]
+
+    def is_count_tokens_api_available(self, provider_name: str) -> bool:
+        """
+        检查provider的count_tokens API是否可用
+
+        Returns:
+            bool: True表示可以尝试调用API，False表示应该使用本地fallback
+        """
+        # 如果全局配置为始终使用本地fallback，直接返回False
+        if self._count_tokens_always_use_local:
+            return False
+
+        # 如果provider未记录状态，默认为可用
+        if provider_name not in self._count_tokens_status:
+            return True
+
+        status = self._count_tokens_status[provider_name]
+
+        # 如果标记为可用，直接返回True
+        if status.get("available", True):
+            return True
+
+        # 如果标记为不可用，检查是否已过冷却期
+        last_check_time = status.get("last_check_time", 0)
+        time_since_last_check = time.time() - last_check_time
+
+        # 如果已过冷却期，允许重试
+        if time_since_last_check > self._count_tokens_cooldown:
+            return True
+
+        # 仍在冷却期内，返回False
+        return False
+
+    def mark_count_tokens_api_failed(self, provider_name: str, request_id: str = None):
+        """
+        标记provider的count_tokens API调用失败
+
+        Args:
+            provider_name: Provider名称
+            request_id: 请求ID (用于日志)
+        """
+        if provider_name not in self._count_tokens_status:
+            self._count_tokens_status[provider_name] = {
+                "available": False,
+                "last_check_time": time.time(),
+                "failure_count": 1
+            }
+        else:
+            status = self._count_tokens_status[provider_name]
+            status["available"] = False
+            status["last_check_time"] = time.time()
+            status["failure_count"] = status.get("failure_count", 0) + 1
+
+        # 记录日志
+        status = self._count_tokens_status[provider_name]
+        warning(
+            LogRecord(
+                event=LogEvent.COUNT_TOKENS_API_UNAVAILABLE.value,
+                message=f"Marked count_tokens API as unavailable for provider {provider_name}, will use local fallback for {self._count_tokens_cooldown}s",
+                request_id=request_id,
+                data={
+                    "provider": provider_name,
+                    "cooldown_seconds": self._count_tokens_cooldown,
+                    "failure_count": status["failure_count"]
+                }
+            )
+        )
+
+    def mark_count_tokens_api_success(self, provider_name: str, request_id: str = None):
+        """
+        标记provider的count_tokens API调用成功
+
+        Args:
+            provider_name: Provider名称
+            request_id: 请求ID (用于日志)
+        """
+        # 检查之前是否标记为不可用
+        was_unavailable = (
+            provider_name in self._count_tokens_status and
+            not self._count_tokens_status[provider_name].get("available", True)
+        )
+
+        # 更新或创建状态
+        self._count_tokens_status[provider_name] = {
+            "available": True,
+            "last_check_time": time.time(),
+            "failure_count": 0
+        }
+
+        # 如果从不可用恢复到可用，记录日志
+        if was_unavailable:
+            info(
+                LogRecord(
+                    event=LogEvent.COUNT_TOKENS_API_RECOVERED.value,
+                    message=f"Provider {provider_name} count_tokens API recovered, will use API for future requests",
+                    request_id=request_id,
+                    data={
+                        "provider": provider_name
+                    }
+                )
+            )
+
+    def get_count_tokens_timeout_override(self) -> Optional[float]:
+        """
+        获取count_tokens请求的超时覆盖配置
+
+        Returns:
+            Optional[float]: 超时时间(秒)，None表示使用默认超时
+        """
+        return self._count_tokens_timeout_override
+
 
     def mark_provider_success(self, provider_name: str):
         """标记provider成功，更新粘滞状态"""

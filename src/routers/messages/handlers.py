@@ -685,7 +685,8 @@ class MessageHandler:
                 token_request.model,
                 token_request.tools,
                 request_id,
-                provider_manager=self.provider_manager
+                provider_manager=self.provider_manager,
+                original_headers=dict(request.headers)
             )
 
             return TokenCountResponse(input_tokens=token_count)

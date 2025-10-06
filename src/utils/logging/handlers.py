@@ -66,6 +66,9 @@ class LogEvent(enum.Enum):
     TOKEN_ENCODER_LOAD_FAILED = "token_encoder_load_failed"
     COUNT_TOKENS_API_CALL = "count_tokens_api_call"
     COUNT_TOKENS_FALLBACK = "count_tokens_fallback"
+    COUNT_TOKENS_API_UNAVAILABLE = "count_tokens_api_unavailable"  # API标记为不可用
+    COUNT_TOKENS_USING_CACHED_STATUS = "count_tokens_using_cached_status"  # 使用缓存的可用性状态
+    COUNT_TOKENS_API_RECOVERED = "count_tokens_api_recovered"  # API从不可用恢复
     
     # Message processing events
     SYSTEM_PROMPT_ADJUSTED = "system_prompt_adjusted"
