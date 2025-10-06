@@ -65,6 +65,7 @@ class LogEvent(enum.Enum):
     TOKEN_COUNT = "token_count"
     TOKEN_ENCODER_LOAD_FAILED = "token_encoder_load_failed"
     COUNT_TOKENS_API_CALL = "count_tokens_api_call"
+    COUNT_TOKENS_FALLBACK = "count_tokens_fallback"
     
     # Message processing events
     SYSTEM_PROMPT_ADJUSTED = "system_prompt_adjusted"
