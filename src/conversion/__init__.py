@@ -1,7 +1,6 @@
 """Conversion utilities for translating between Anthropic and OpenAI API formats."""
 
 from .token_counting import (
-    get_token_encoder,
     count_tokens_for_anthropic_request
 )
 
@@ -27,7 +26,6 @@ from .helpers import (
 
 __all__ = [
     # Token counting
-    "get_token_encoder",
     "count_tokens_for_anthropic_request",
     
     # Anthropic to OpenAI

@@ -253,7 +253,13 @@ def create_app(config_path: str = "config.yaml", environment: str = "production"
     # Initialize logging
     init_logger(local_settings.app_name)
     setup_logging(local_settings)
-    
+
+    # Filter count_tokens requests from uvicorn access log to reduce noise
+    import logging
+    logging.getLogger("uvicorn.access").addFilter(
+        lambda record: "/count_tokens" not in record.getMessage()
+    )
+
     # Modify title for test environment
     title = local_settings.app_name
     description = "Intelligent load balancer and failover proxy for Claude Code providers"

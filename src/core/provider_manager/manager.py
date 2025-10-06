@@ -445,12 +445,36 @@ class ProviderManager:
     def get_healthy_providers(self) -> List[Provider]:
         """Get list of healthy (non-failed) providers"""
         cooldown = self.get_failure_cooldown()
-        
+
         # 简化逻辑：只返回健康的providers，粘滞逻辑已移至选择策略中
         healthy_providers = [p for p in self.providers if p.enabled and p.is_healthy(cooldown)]
         # Removed debug print - this would be too noisy in production
         return healthy_providers
-    
+
+    def select_healthy_anthropic_provider(self) -> Provider:
+        """
+        Select a healthy Anthropic provider for token counting.
+
+        Returns:
+            Provider: A healthy Anthropic provider
+
+        Raises:
+            Exception: If no healthy Anthropic providers are available
+        """
+        cooldown = self.get_failure_cooldown()
+
+        # Find healthy Anthropic providers
+        healthy_anthropic_providers = [
+            p for p in self.providers
+            if p.enabled and p.is_healthy(cooldown) and p.type == ProviderType.ANTHROPIC
+        ]
+
+        if not healthy_anthropic_providers:
+            raise Exception("No healthy Anthropic providers available for token counting")
+
+        # Return the first healthy provider (could use selection strategy here if needed)
+        return healthy_anthropic_providers[0]
+
     def mark_provider_success(self, provider_name: str):
         """标记provider成功，更新粘滞状态"""
         self._last_successful_provider = provider_name

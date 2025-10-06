@@ -671,22 +671,23 @@ class MessageHandler:
         return build_anthropic_error_response(error_type, message, status_code, provider_details)
 
     async def count_tokens(self, request: Request) -> TokenCountResponse:
-        """Estimates token count for given Anthropic messages and system prompt."""
+        """Get accurate token count from Anthropic API for given messages and system prompt."""
         request_id = str(uuid.uuid4())
-        
+
         try:
             raw_body = await request.body()
             parsed_body = json.loads(raw_body.decode('utf-8'))
             token_request = TokenCountRequest(**parsed_body)
-            
-            token_count = count_tokens_for_anthropic_request(
+
+            token_count = await count_tokens_for_anthropic_request(
                 token_request.messages,
                 token_request.system,
                 token_request.model,
                 token_request.tools,
-                request_id
+                request_id,
+                provider_manager=self.provider_manager
             )
-            
+
             return TokenCountResponse(input_tokens=token_count)
             
         except ValidationError as e:
